@@ -44,7 +44,12 @@ export function foldAssetState(input: FoldInput): AssetState {
   const flag = (m: Movement, code: ViolationCode, message: string) =>
     violations.push({ movementId: m.id, code, message });
 
-  const timeline = sortMovements(effectiveMovements(input.movements)).filter(
+  // Filtering by assetId is not redundant. Handing this function the whole
+  // ledger instead of one asset's slice is an easy mistake, and without the
+  // filter it folds every asset's movements into one asset's state and
+  // reports a store full of violations that do not exist.
+  const mine = input.movements.filter((m) => m.assetId === input.asset.id);
+  const timeline = sortMovements(effectiveMovements(mine)).filter(
     (m) => m.occurredAt.getTime() <= at.getTime(),
   );
 
