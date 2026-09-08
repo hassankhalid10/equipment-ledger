@@ -1,18 +1,23 @@
-import { Body, Controller, Headers, HttpCode, Post, Res } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Param, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { DomainError } from '../../common/errors/domain-error.js';
+import { CorrectionsService } from './corrections.service.js';
 import { MovementsService } from './movements.service.js';
+import { CorrectMovementDto } from './dto/correct-movement.dto.js';
 import { IssueDto } from './dto/issue.dto.js';
 import { ReturnDto } from './dto/return.dto.js';
 
 /**
- * Both endpoints require Idempotency-Key. Missing it is a 428, checked
+ * Every endpoint requires Idempotency-Key. Missing it is a 428, checked
  * before the body is even looked at (PLAN.md §7 step 1) - a client that
  * forgot the header should not be told its payload was wrong.
  */
 @Controller('movements')
 export class MovementsController {
-  constructor(private readonly movements: MovementsService) {}
+  constructor(
+    private readonly movements: MovementsService,
+    private readonly corrections: CorrectionsService,
+  ) {}
 
   @Post('issue')
   @HttpCode(201)
@@ -36,6 +41,20 @@ export class MovementsController {
   ) {
     requireIdempotencyKey(idempotencyKey);
     const result = await this.movements.returnAsset(dto, idempotencyKey!);
+    if (result.replay) res.set('Idempotent-Replay', 'true');
+    return result.body;
+  }
+
+  @Post(':id/corrections')
+  @HttpCode(201)
+  async correct(
+    @Param('id') id: string,
+    @Body() dto: CorrectMovementDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    requireIdempotencyKey(idempotencyKey);
+    const result = await this.corrections.correct(id, dto, idempotencyKey!);
     if (result.replay) res.set('Idempotent-Replay', 'true');
     return result.body;
   }
