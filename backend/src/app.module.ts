@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { HealthModule } from './modules/health/health.module.js';
 import { LedgerModule } from './modules/ledger/ledger.module.js';
+import { MovementsModule } from './modules/movements/movements.module.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 
 @Module({
@@ -25,6 +26,7 @@ import { PersistenceModule } from './persistence/persistence.module.js';
     PersistenceModule,
     HealthModule,
     LedgerModule,
+    MovementsModule,
   ],
 })
 export class AppModule {}
