@@ -76,13 +76,24 @@ The spec states no versions, so: current stable Next.js, current stable NestJS, 
 
 Supporting choices, kept deliberately small:
 
-- **Mongoose** via the first-party `@nestjs/mongoose` — Nest's own database idiom, not an extra opinion.
-- **class-validator / class-transformer** — Nest's built-in validation pipe uses them.
-- **Jest + Supertest** — ships with the Nest scaffold.
-- **Tailwind** — offered by `create-next-app`, zero config. Plain CSS is an equally fine swap.
-- **Docker Compose** for Mongo as a **single-node replica set** (needed for transactions).
+**Backend**
 
-Nothing else. No state library, no ORM layer, no monorepo tool, no UI kit.
+- **Mongoose** via the first-party `@nestjs/mongoose` — Nest's own database idiom, not an extra opinion.
+- **class-validator / class-transformer** — Nest's built-in validation pipe uses them. The server is the validation authority.
+- **Jest + Supertest** — ships with the Nest scaffold.
+- **A plain local MongoDB (standalone).** No Docker, no replica set. See section 7 for why, and what it costs.
+
+**Frontend**
+
+- **Tailwind CSS** — all styling.
+- **TanStack Query (`@tanstack/react-query`)** — the single client data path: cache, refetch, invalidation after writes.
+- **React Hook Form + Zod** (`@hookform/resolvers/zod`) — every dialog form.
+- **Zustand** — client UI state only: the selected keeper, and the as-of time-travel instant.
+- **react-hot-toast** — success confirmations and refusal messages.
+
+Nothing else. No ORM layer, no monorepo tool, no UI kit.
+
+The split is deliberate and is one line in the README: **Zustand holds UI state, TanStack Query holds server state.** Nothing lives in both.
 
 ---
 
@@ -107,7 +118,7 @@ The spec says: they run it, try to break it, *then* read the code. So the first 
 
 | What they will do | How I make it pass |
 |---|---|
-| Concurrent double issue (two at once, two tabs) | Every write runs in one Mongo transaction that bumps a per-asset counter. A unique `_id` on the open-holding collection is the structural backstop. Exactly one wins; the loser gets a 409 with a readable reason. |
+| Concurrent double issue (two at once, two tabs) | Every write takes a per-asset lease, then claims the asset with a single `insertOne` whose `_id` is the asset id — unique by definition. Exactly one wins; the loser gets a 409 with a readable reason. Works identically on standalone MongoDB, with no transactions. |
 | Double-click / replay same payload / refresh mid-submit | Mandatory `Idempotency-Key` on every write, stored in the same transaction. Replay returns the original response, not a second movement. Submit buttons also disable, but the server is the guarantee. |
 | Issue to a worker whose cert expired yesterday | Certification checked against the *issue date*, refusal message names the worker, the certificate and the expiry date. |
 | Out of service while issued, and while reserved | A stated decision (below), applied consistently, and written in the README. |
@@ -115,7 +126,7 @@ The spec says: they run it, try to break it, *then* read the code. So the first 
 | Backdate a return before its issue; backdate into the middle of a later hold | Every movement, and every correction, is re-validated against the *whole* timeline for that asset, not just the current state. |
 | Reserve in the past / end before start / a whole year | Rejected with three distinct readable reasons. |
 | "As of" exactly on a timestamp, and before the store existed | Boundary is inclusive and documented. Pre-history returns a clean, honest answer rather than an empty crash. |
-| Kill the API mid-request | Every write is all-or-nothing. The UI never shows an optimistic result; it re-reads after the server confirms, and shows an explicit error state on failure. |
+| Kill the API mid-request | The claim carries the whole intent and the movement's pre-generated `_id`, so an interrupted write is replayed to exactly one movement on the next read or write of that asset. The UI never shows an optimistic result; it re-reads after the server confirms, and shows an explicit error state on failure. |
 | Read Mongo directly and compare with the screens | The screens are computed from the same ledger, with no separate cache. An invariant-check command proves it. |
 | "Why did you build it that way?" | README explains the model, the rejected alternatives, and the costs. |
 
@@ -140,7 +151,6 @@ The core decision: **the ledger is an append-only log of movements. Current stat
 - `name` — string
 - `kind` — string (harness, drill, gas detector, ladder, generator…)
 - `requiredCertification` — string or null
-- `writeSeq` — integer, bumped inside every write transaction that touches this asset (this is the serialisation point)
 - `addedToStoreAt` — date
 - `createdAt` / `updatedAt`
 
@@ -180,7 +190,17 @@ Note: no current-state fields here. State is derived.
 
 **`asset_holdings`** — a guard, not a cache. One document exists *only while an asset is held*.
 - `_id` = assetId (this is the whole trick — the primary key is unique by definition)
+- `state` — `PENDING` | `ACTIVE` | `RELEASING`
 - `workerId`, `issueMovementId`, `since`, `dueAt`
+- `intent` — the complete payload of the movement(s) this claim is about to write, including their **pre-generated `_id`s**. This is what makes a half-finished write replayable rather than lost.
+- `claimedAt` — when the claim was taken; a claim still `PENDING` after the settle timeout is replayed by the next caller.
+- `idempotencyKey`
+
+**`asset_locks`** — a short lease, one document per asset, the serialisation point for every write.
+- `_id` = assetId
+- `token` — random per-request string; only the holder of the token may release
+- `expiresAt` — now + 10s; a dead process cannot hold the asset hostage
+- `route`, `acquiredAt` — for diagnosing a stuck lease
 
 **`idempotency_keys`**
 - `_id` = the key string
@@ -191,6 +211,8 @@ Note: no current-state fields here. State is derived.
 - `assets.code` unique
 - `movements` on `{assetId, occurredAt}`, on `{occurredAt}`, on `{recordedAt}`, on `{correctsMovementId}`, and `idempotencyKey` unique
 - `asset_holdings._id` — implicit unique, this is the "one holder" backstop
+- `asset_locks._id` — implicit unique, this is what makes the lease atomic
+- `movements._id` — pre-generated by the writer, so replaying a half-finished write is idempotent rather than duplicating
 - `reservations` on `{assetId, startsAt}` and `{assetId, status, endsAt}`
 - `workers.employeeNo` unique
 
@@ -227,18 +249,37 @@ Reservation ──0..1──> Movement      (collectedMovementId)
 - **Persistence** — Mongoose models, repositories, index definitions.
 - **Cross-cutting** — validation pipe, idempotency interceptor, transaction helper with retry, error filter, request-id.
 
+### Why there are no transactions
+
+MongoDB only offers multi-document transactions on a replica set. The target machine runs an ordinary standalone MongoDB service, where `session.withTransaction` fails outright with *"Transaction numbers are only allowed on a replica set"*. Requiring the assessor to convert their MongoDB to a replica set before the app will start is a setup tax and a first-run failure I am not willing to ship.
+
+So the concurrency guarantee is built from operations that are atomic on **any** MongoDB, standalone or replica set: **single-document writes**. Two independent layers:
+
+1. **A per-asset lease** (`asset_locks`) serialises writes to one asset. This replaces the old `writeSeq` bump, which existed only to force transactions into conflict.
+2. **A unique `_id` on `asset_holdings`** structurally refuses a second holder. This layer does not depend on my locking being correct — if the lease logic had a bug tomorrow, the storage engine still refuses the second issue.
+
+The honest cost is stated below and goes in the README.
+
 ### The write path (identical for every mutation)
 
-1. Reject the request if `Idempotency-Key` is missing.
-2. Open a Mongo transaction.
-3. Bump `assets.writeSeq` for the asset. **This is the line.** Two concurrent transactions touching the same asset now conflict at the storage layer; one is aborted and retried, and on retry it sees the other's result.
-4. Load the asset's effective timeline and the current holding.
-5. Run the domain rules. Any refusal throws a typed domain error carrying a code and a human sentence.
-6. Insert the movement, insert/remove the holding, touch the reservation.
-7. Insert the idempotency record.
-8. Commit. Retry the whole block on a transient write conflict, bounded.
+1. Reject the request if `Idempotency-Key` is missing → `428`.
+2. Look the key up. If a completed record exists, return the original status and body, marked as a replay.
+3. **Acquire the asset's lease**: `findOneAndUpdate` on `asset_locks` matching `_id: assetId` and `expiresAt <= now`, with `upsert: true`, setting a fresh token and `expiresAt`. A live lease makes the upsert collide on `_id` and raise a duplicate-key error — that *is* the "someone else is writing" signal. Bounded retry with jittered backoff, then `409 ASSET_BUSY`.
+4. **Replay any unfinished claim** on this asset first (see below), so the timeline we are about to read is complete.
+5. Load the asset's movements and holding. Run the pure domain rules. Any refusal throws a typed domain error carrying a code and a human sentence.
+6. **Take the claim, and pre-generate the movement `_id`s.** This is the commit point:
+   - **ISSUE** → `insertOne` into `asset_holdings` with `state: PENDING` and the full `intent`. **This is the line.** A duplicate key here means someone already holds the asset → `409 ASSET_ALREADY_HELD`. It is one atomic write; exactly one of N simultaneous issues can win, on standalone as on a replica set.
+   - **RETURN** → `findOneAndUpdate` matching `_id: assetId, state: ACTIVE`, setting `state: RELEASING` and the intent. No match → `409 ASSET_NOT_HELD`.
+7. **Apply the intent**: insert the movement(s) using the pre-generated `_id`s. A duplicate `_id` here is benign — it means this intent was already applied, which is exactly what makes replay safe.
+8. **Settle**: `PENDING → ACTIVE`, or delete the `RELEASING` holding. Touch the reservation. Write the idempotency record. Release the lease by token.
 
-Cost, stated plainly: this serialises all writes per asset, requires a replica set, and makes writes a little slower. Different assets never contend.
+### The crash window, stated plainly
+
+Steps 6 and 7 are two separate writes, so a process killed exactly between them leaves a claim taken and its movement not yet written. This is the one thing a transaction would have given me for free, and I am not going to pretend otherwise.
+
+It is handled, not ignored: the claim carries the entire intent **and the `_id`s the movements will use**, so replaying it is deterministic and produces the same documents no matter how many times it runs. Step 4 replays any unsettled claim before the next write to that asset, `GET /assets/:code` replays before it reads, and `npm run reconcile` sweeps every unsettled claim on demand. An asset can therefore be briefly locked-but-not-yet-logged; it can never end up held by two workers, and no movement is ever written twice.
+
+Cost, stated plainly: writes to one asset are serialised, a write takes two round trips instead of one commit, and crash recovery is my code's job rather than the storage engine's. Different assets never contend. Nothing here changes if the database is later moved to a replica set — the same code runs correctly, it simply gains a shorter recovery window.
 
 ### API endpoints
 
@@ -285,7 +326,9 @@ Replay of a completed key returns the original status and body, plus a header ma
 
 ## 8. Frontend
 
-Next.js App Router. Read pages are server components that fetch from the NestJS API. Forms are small client components.
+Next.js App Router, Tailwind for styling. Server components render the shell and layout; **TanStack Query is the single data path for everything that comes from the ledger**, in client components.
+
+That is a deliberate choice over server-component fetching with `router.refresh()`. Two reasons: one obvious data path is easier to defend in the interview than two, and the as-of page is a slider that refetches constantly, which is a client concern. The cost, stated in the README: no RSC streaming, and the first paint waits on the client fetch.
 
 ### Routes
 
@@ -303,18 +346,37 @@ Five routes, and the spec's warning about "six screens done thinly" is respected
 
 - `AssetStateBadge` — one component that renders every state consistently everywhere.
 - `KeeperPicker` — header dropdown, the "pick a name from a list" the spec asks for.
-- `IssueDialog`, `ReturnDialog`, `ReserveDialog`, `CorrectDialog`, `ServiceDialog` — each a form that generates one idempotency key when opened.
+- `IssueDialog`, `ReturnDialog`, `ReserveDialog`, `CorrectDialog`, `ServiceDialog` — each a React Hook Form + Zod form that generates one idempotency key when opened.
 - `MovementTimeline` — the asset life, correction chains rendered as struck-through original + the correction beneath it.
-- `AsOfPicker` — datetime input plus quick presets ("one hour ago").
-- `ErrorBanner` — renders the API's error code and message verbatim.
+- `AsOfPicker` — datetime input, a slider, and quick presets ("one hour ago").
+- `ErrorBanner` — renders the API's error code and message verbatim, inline in the form.
 
 ### State handling
 
-- No global state library. Server components hold the data.
-- Forms use local `useState` plus `useTransition`, then `router.refresh()` after a confirmed write.
-- **No optimistic updates.** This is deliberate: the spec kills the API mid-request and looks at what the browser is left claiming. The UI shows pending, then either the server's truth or an explicit error. It never claims a movement happened.
+**Server state — TanStack Query**
+
+- One `queryKey` per resource (`['assets']`, `['asset', code]`, `['as-of', instant]`, …).
+- Writes are `useMutation`, and on success invalidate the affected keys. The screen is re-read from the server, never patched locally.
+- **No optimistic updates — `onMutate` is not used anywhere.** This is deliberate: the spec kills the API mid-request and looks at what the browser is left claiming. The UI shows pending, then either the server's truth or an explicit error. It never claims a movement happened.
+- **`retry: false` on every mutation.** Idempotency keys make a retry *safe*, but a silent retry would hide exactly the mid-request failure the assessor is trying to provoke. Reads may retry; writes surface the error.
+
+**UI state — Zustand**
+
+- `useKeeperStore` — the selected keeper, `persist`ed to localStorage so it survives a refresh. Sent as `keeperId` on every write.
+- `useAsOfStore` — the time-travel instant driving the as-of slider.
+- Nothing from the ledger is ever copied into Zustand.
+
+**Forms — React Hook Form + Zod**
+
+- One Zod schema per dialog, resolved through `@hookform/resolvers/zod`.
+- These schemas mirror the API contract for fast feedback only. **The server is the authority**; the client never refuses something the server would have accepted, and never trusts its own pass.
 - The idempotency key is created when the dialog opens and reused on every retry of that same submit, so a retry after a timeout cannot create a second movement.
 - Submit buttons disable while pending — a convenience, not the guarantee.
+
+**Feedback — react-hot-toast**
+
+- Success toasts on a confirmed write.
+- Refusals render `error.message` from the API verbatim, in the toast and in the form's `ErrorBanner`. The frontend never invents wording for a business refusal.
 
 ---
 
@@ -354,14 +416,14 @@ This is stated in the README as a knowingly-accepted limitation, because pretend
 - **Issue**: asset exists, is in service, is not held, has no active reservation for another worker, and the worker's certification is valid on the issue date.
 - **Return**: asset is currently held; the return time is after the issue it closes and does not fall inside a later hold.
 - **Correction**: the target movement exists, is not already superseded, and the corrected values leave the asset's whole timeline valid.
-- **Reserve**: window does not overlap any `PENDING` or `COLLECTED` reservation on that asset, using half-open comparison so adjacent windows pass.
+- **Reserve**: window does not overlap any `PENDING` or `COLLECTED` reservation on that asset, using half-open comparison so adjacent windows pass. Overlap is a range test, so no unique index can enforce it — this rule leans entirely on the per-asset lease from section 7, which every write acquires. After inserting, the service re-reads the asset's reservations and asserts exactly one match for the new window; if the lease were ever violated, the later insert self-cancels with a recorded reason rather than leaving two live overlapping claims.
 - **Service change**: cannot take out an asset already out; cannot bring back one already in service.
 
 ### Error response shape
 
 One shape everywhere, with these fields:
 
-- `error.code` — a stable machine string, e.g. `ASSET_ALREADY_HELD`, `CERTIFICATION_EXPIRED`, `RESERVATION_OVERLAP`, `RETURN_BEFORE_ISSUE`, `ASSET_OUT_OF_SERVICE`, `MOVEMENT_ALREADY_CORRECTED`, `IDEMPOTENCY_KEY_REQUIRED`.
+- `error.code` — a stable machine string, e.g. `ASSET_ALREADY_HELD`, `ASSET_NOT_HELD`, `ASSET_BUSY`, `CERTIFICATION_EXPIRED`, `RESERVATION_OVERLAP`, `RETURN_BEFORE_ISSUE`, `ASSET_OUT_OF_SERVICE`, `MOVEMENT_ALREADY_CORRECTED`, `IDEMPOTENCY_KEY_REQUIRED`.
 - `error.message` — a full sentence a store keeper can read.
 - `error.details` — optional structured extras (who holds it, which window clashed).
 - `requestId` — for matching against server logs.
@@ -391,7 +453,7 @@ The frontend renders `message` directly. It never invents its own wording.
 - Correction chain resolution, including a correction of a correction.
 - The timeline validator: return before issue, movement into the middle of a later hold.
 
-**Integration tests** (Nest + a real Mongo replica set, separate test database, cleaned per run)
+**Integration tests** (Nest + the same standalone Mongo, separate test database, cleaned per run)
 
 - Issue → return → re-issue happy path.
 - **The concurrency test**: fire 10 simultaneous issue requests for one asset; assert exactly one 201 and nine 409s, and exactly one movement in the collection. This is the single most important test in the suite.
@@ -410,11 +472,12 @@ The frontend renders `message` directly. It never invents its own wording.
 Reads Mongo directly — not through the API — and asserts:
 
 1. No asset is held by two workers at any instant in the reconstructed timeline.
-2. `asset_holdings` matches exactly what the ledger says is currently held.
+2. Every `ACTIVE` holding matches exactly what the ledger says is currently held. Claims still `PENDING` or `RELEASING` are reported separately as *unsettled*, not as failures — they are a write in flight, and the checker prints how to settle them (`npm run reconcile`).
 3. No reservation overlaps another on the same asset.
 4. Every RETURN closes an ISSUE that precedes it.
 5. Every correction points at a real, existing movement.
 6. No movement has `occurredAt` after `recordedAt` by more than a permitted clock skew.
+7. No movement `_id` promised by a settled claim is missing from the ledger — the check that proves the intent-replay path never drops a write.
 
 It prints a pass/fail line per invariant and exits non-zero on failure. It runs against the seeded database and again after the test suite. This is what turns "the ledger is correct" into something the assessor can verify in one command.
 
@@ -442,8 +505,10 @@ Decisions I am making, all to be written into the README:
 14. **Correcting a correction** → allowed. The chain is followed to its tip; the whole chain renders in the history.
 15. **Correcting a movement that a later movement depends on** → revalidated against the whole timeline, and refused if it would break it.
 16. **Clock skew** → `recordedAt` always comes from the server, never the client. `occurredAt` may come from the client but cannot be in the future.
-17. **API killed mid-request** → the transaction rolls back, nothing is written, and the browser shows an error rather than a claim.
+17. **API killed mid-request** → the browser shows an error rather than a claim. Server-side, one of three things is true: the claim was never taken and nothing was written; or the claim was taken and its movements written, and the next read of that asset settles it; or the claim was taken and the movements not yet written, and the next write or read of that asset replays the stored intent using its pre-generated `_id`s. In every case the asset ends up with one holder and one movement.
 18. **Timezones** → everything stored UTC, displayed in the browser's local zone, with the raw ISO value shown on hover in the ledger.
+19. **Two writes to the same asset at the same moment** → the second gets `409 ASSET_BUSY` from the lease and may be retried by a human. It is a distinct code from `ASSET_ALREADY_HELD`, because "try again in a second" and "Amir has it" are different sentences for a store keeper.
+20. **A process dies holding a lease** → the lease carries `expiresAt` (10s) and is compared on acquire, so it frees itself. No dead process can hold an asset hostage, and no stuck lock needs a manual clear.
 
 ---
 
@@ -452,17 +517,17 @@ Decisions I am making, all to be written into the README:
 ```
 equipment-ledger/
 ├─ README.md
-├─ docker-compose.yml              # Mongo as a single-node replica set
 ├─ .gitignore
 │
-├─ api/                            # NestJS
+├─ backend/                        # NestJS
 │  ├─ src/
 │  │  ├─ main.ts
 │  │  ├─ app.module.ts
 │  │  ├─ common/
 │  │  │  ├─ errors/                # domain error types + HTTP mapping
 │  │  │  ├─ idempotency/           # header guard, store, interceptor
-│  │  │  ├─ transactions/          # withTransaction + retry helper
+│  │  │  ├─ locking/               # asset lease: acquire, release, expiry
+│  │  │  ├─ write-path/            # claim → apply intent → settle, + replay
 │  │  │  └─ filters/               # error shape, request id
 │  │  ├─ domain/                   # PURE. no database imports.
 │  │  │  ├─ state-fold.ts
@@ -472,8 +537,8 @@ equipment-ledger/
 │  │  │  ├─ certification.ts
 │  │  │  └─ reservation-overlap.ts
 │  │  ├─ persistence/
-│  │  │  ├─ schemas/               # asset, worker, keeper, movement,
-│  │  │  │                         # reservation, holding, idempotency
+│  │  │  ├─ schemas/               # asset, worker, keeper, movement, reservation,
+│  │  │  │                         # holding, lock, idempotency
 │  │  │  └─ repositories/
 │  │  ├─ modules/
 │  │  │  ├─ assets/
@@ -484,30 +549,34 @@ equipment-ledger/
 │  │  │  └─ ledger/                # as-of + history
 │  │  └─ scripts/
 │  │     ├─ seed.ts
-│  │     └─ check-invariants.ts
+│  │     ├─ check-invariants.ts
+│  │     └─ reconcile.ts           # settle any unfinished claim
 │  ├─ test/
 │  │  ├─ unit/
 │  │  └─ e2e/
 │  │     ├─ concurrency.e2e-spec.ts
 │  │     ├─ idempotency.e2e-spec.ts
+│  │     ├─ crash-recovery.e2e-spec.ts
 │  │     ├─ corrections.e2e-spec.ts
 │  │     ├─ reservations.e2e-spec.ts
 │  │     └─ as-of.e2e-spec.ts
 │  ├─ .env.example
 │  └─ package.json
 │
-└─ web/                            # Next.js
+└─ frontend/                       # Next.js
    ├─ src/
    │  ├─ app/
-   │  │  ├─ layout.tsx
+   │  │  ├─ layout.tsx             # QueryClientProvider + Toaster
    │  │  ├─ page.tsx               # store board
    │  │  ├─ assets/[code]/page.tsx
    │  │  ├─ as-of/page.tsx
    │  │  ├─ ledger/page.tsx
    │  │  └─ workers/page.tsx
    │  ├─ components/
-   │  ├─ lib/                      # api client, idempotency keys, dates
-   │  └─ styles/
+   │  ├─ hooks/                    # useAssets, useIssue, … (TanStack Query)
+   │  ├─ stores/                   # keeper, as-of (Zustand)
+   │  ├─ schemas/                  # Zod, one per dialog
+   │  └─ lib/                      # api client, idempotency keys, dates
    ├─ .env.example
    └─ package.json
 ```
@@ -519,7 +588,7 @@ Two plain npm projects. No workspace tooling.
 ## 14. Implementation order
 
 ### Phase 0 — Ground *(~30 min)*
-Repo, git init, Docker Compose with Mongo as a single-node replica set, empty Nest and Next scaffolds, env examples, README skeleton.
+Repo, git init, `backend/` Nest scaffold and `frontend/` Next scaffold with Tailwind, TanStack Query provider, react-hot-toast `Toaster`, env examples, README skeleton. Connects to the local standalone MongoDB — no Docker, no replica set, nothing to install.
 **Deliverable:** both apps start, API reports a healthy database connection.
 
 ### Phase 1 — Model and indexes *(~45 min)*
@@ -534,9 +603,9 @@ Deterministic, re-runnable seed: 60 assets, 12 workers, 30 days of movements inc
 Assets, workers, keepers, movements, reservations, asset history, and the as-of endpoint. All derived from the ledger.
 **Deliverable:** the as-of endpoint answers "an hour ago" correctly against the seeded data.
 
-### Phase 4 — Issue and return *(~90 min)* ← **the heart of it**
-Transaction helper with retry, the `writeSeq` bump, the holding guard, the idempotency interceptor, certification gating, timeline validation, the domain error → HTTP mapping.
-**Deliverable:** concurrency test passes — 10 simultaneous issues, one winner. Idempotency test passes.
+### Phase 4 — Issue and return *(~100 min)* ← **the heart of it**
+The asset lease with expiry and bounded retry, the claim → apply-intent → settle write path, the unsettled-claim replay, the idempotency interceptor, certification gating, timeline validation, the domain error → HTTP mapping.
+**Deliverable:** concurrency test passes — 10 simultaneous issues, one winner. Idempotency test passes. Crash-recovery test passes: a claim taken with its movement withheld is replayed to exactly one movement.
 
 ### Phase 5 — Reservations and service status *(~50 min)*
 Create, cancel, overlap refusal, the window validations, out-of-service and back-in-service including the cancel-standing-reservations decision.
@@ -546,19 +615,19 @@ Create, cancel, overlap refusal, the window validations, out-of-service and back
 Append-only corrections, chain resolution, revalidation against the whole timeline, history rendering data.
 **Deliverable:** a backdated return can be corrected, and the history shows both entries.
 
-### Phase 7 — Invariant checker *(~35 min)*
-The six checks, a readable report, non-zero exit on failure.
+### Phase 7 — Invariant checker *(~40 min)*
+The seven checks, a readable report, non-zero exit on failure, plus `npm run reconcile`.
 **Deliverable:** `npm run check:invariants` passes against the seeded store.
 
 ### Phase 8 — Frontend *(~2 h)*
-Store board, asset life page with all five dialogs, as-of page, ledger page, workers page. Keeper picker. Error banner. No optimistic updates.
+Store board, asset life page with all five dialogs, as-of page with the slider, ledger page, workers page. TanStack Query hooks, Zustand keeper and as-of stores, React Hook Form + Zod dialogs, toasts and error banners. No optimistic updates.
 **Deliverable:** the whole main scenario can be driven from the browser.
 
 ### Phase 9 — README and recording *(~45 min)*
 Every README bullet the spec lists, then the 2–3 minute recording: issue, refused issue, backdated return, correction, as-of.
 **Deliverable:** submission-ready.
 
-> That is roughly 8 hours 40 minutes of work against an 8-hour budget, which is why section 15 exists.
+> That is roughly 9 hours 35 minutes of work against an 8-hour budget, which is why section 15 exists.
 
 ---
 
@@ -567,7 +636,8 @@ Every README bullet the spec lists, then the 2–3 minute recording: issue, refu
 **Must ship — cutting any of these fails the test**
 
 - Issue, return, reserve, reconstruct.
-- One holder under concurrency, with the guarantee demonstrable.
+- One holder under concurrency, with the guarantee demonstrable, on a plain local MongoDB.
+- The unsettled-claim replay. Without it the no-transaction design has a hole, so it is not optional.
 - Idempotency on every write.
 - `occurredAt` and `recordedAt` as separate fields.
 - Corrections that leave the original visible.
@@ -654,7 +724,7 @@ Every README bullet the spec lists, then the 2–3 minute recording: issue, refu
 - [ ] Reserve for a year → refused
 - [ ] As-of exactly on a timestamp → inclusive, documented
 - [ ] As-of before the store existed → clean answer
-- [ ] API killed mid-request → nothing written, browser shows an error
+- [ ] API killed mid-request → browser shows an error; server settles to exactly one movement, never two and never a lost one
 - [ ] Raw Mongo agrees with every screen
 - [ ] Reasoning ready for the "why" conversation
 
@@ -685,7 +755,7 @@ Every README bullet the spec lists, then the 2–3 minute recording: issue, refu
 7. **A return from a non-holder is allowed and recorded**, based on section 01's "possibly from a different worker".
 8. **Service changes live in the movements collection**, not a separate one, so "as of" is one fold over one log.
 9. **Runnable invariant checks are treated as a hard requirement**, inferred from the README bullet "how to run the invariant checks".
-10. **Mongo runs as a single-node replica set** because transactions require it. This is a setup cost the assessor will hit on first run, so it goes at the top of the README.
+10. **Mongo runs standalone, and there are no transactions.** The guarantee comes from a per-asset lease plus a unique `_id` on `asset_holdings` — both atomic on any MongoDB. The trade is explicit: the app installs and runs against an ordinary local MongoDB with zero setup, and in exchange crash recovery between the claim and its movement is handled by intent-replay in my code instead of by the storage engine. Section 7 states the window; the README states it too.
 11. **A worker may hold several different assets at once.** The spec constrains one holder per asset, not one asset per holder.
 12. **Times are stored UTC and displayed in the browser's local zone.** The spec is silent on timezones.
 
@@ -758,13 +828,16 @@ Answers to have ready before the interview — each one written into the README:
 
 1. Why an append-only ledger instead of mutable rows with a current-state field.
 2. Why service changes live in the same log as issues and returns.
-3. Exactly which line makes a double issue impossible, and what it costs (per-asset write serialisation, replica set requirement, slower writes).
-4. Why `asset_holdings` is a guard and not a cache, and how the invariant checker proves it stays in step.
-5. Why idempotency is enforced server-side rather than by disabling the button.
-6. Why as-of applies corrections recorded after the instant asked about.
-7. Why reservations are half-open intervals, and why the minute-slot alternative was rejected (a year-long reservation would be 525,600 documents).
-8. What another day would buy: the second time axis, snapshots, and richer filtering.
-9. What was knowingly left out and why.
+3. Exactly which line makes a double issue impossible — the `insertOne` into `asset_holdings` on a `_id` that is unique by definition — and what it costs (per-asset write serialisation, two round trips per write, my own crash recovery).
+4. Why there are no transactions, what standalone MongoDB refuses, and why I chose zero-setup correctness over a replica set requirement.
+5. Why the intent is written *before* the movement, and why pre-generating the movement `_id` is what makes replaying it safe.
+6. Why `asset_holdings` is a guard and not a cache, and how the invariant checker proves it stays in step.
+7. Why idempotency is enforced server-side rather than by disabling the button.
+8. Why TanStack Query has `retry: false` on writes even though idempotency keys make a retry safe.
+9. Why as-of applies corrections recorded after the instant asked about.
+10. Why reservations are half-open intervals, and why the minute-slot alternative was rejected (a year-long reservation would be 525,600 documents).
+11. What another day would buy: the second time axis, snapshots, and richer filtering.
+12. What was knowingly left out and why.
 
 ### On disclosure
 
