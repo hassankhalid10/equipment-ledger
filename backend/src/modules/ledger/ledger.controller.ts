@@ -35,12 +35,12 @@ export class LedgerController {
 
   @Get('assets/:code')
   asset(@Param('code') code: string) {
-    return this.store.assetByCode(code.toUpperCase());
+    return this.store.assetByCode(code);
   }
 
   @Get('assets/:code/history')
   history(@Param('code') code: string) {
-    return this.store.assetHistory(code.toUpperCase());
+    return this.store.assetHistory(code);
   }
 
   /**

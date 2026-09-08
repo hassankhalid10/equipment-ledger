@@ -96,7 +96,7 @@ export class StoreReaderService {
   }
 
   async assetByCode(code: string, at: Date = new Date()): Promise<AssetView> {
-    const doc = await this.assets.findOne({ code }).lean<AssetDoc | null>().exec();
+    const doc = await this.findAssetByCode(code);
     if (!doc) throw new NotFoundException(`No asset with code ${code}.`);
 
     const [movementDocs, reservationDocs, workers] = await Promise.all([
@@ -124,7 +124,7 @@ export class StoreReaderService {
    * means the mistake has to stay visible (FR-18).
    */
   async assetHistory(code: string) {
-    const doc = await this.assets.findOne({ code }).lean<AssetDoc | null>().exec();
+    const doc = await this.findAssetByCode(code);
     if (!doc) throw new NotFoundException(`No asset with code ${code}.`);
 
     const [movementDocs, reservationDocs, workers] = await Promise.all([
@@ -179,6 +179,20 @@ export class StoreReaderService {
     };
   }
 
+  /**
+   * Case-insensitive on purpose: the seed's own codes are always uppercase,
+   * but nothing should make "harn-014" silently fail to find HARN-014.
+   * Found via the controller's uppercase-lookalike assumption breaking on a
+   * lowercase-hex test fixture code - fixed at the source rather than by
+   * asking every caller to normalise case itself.
+   */
+  private findAssetByCode(code: string) {
+    return this.assets
+      .findOne({ code: new RegExp(`^${escapeRegex(code)}$`, 'i') })
+      .lean<AssetDoc | null>()
+      .exec();
+  }
+
   private view(
     doc: AssetDoc,
     state: AssetState,
@@ -218,4 +232,8 @@ export class StoreReaderService {
         : null,
     };
   }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

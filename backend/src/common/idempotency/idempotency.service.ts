@@ -2,8 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'node:crypto';
 import type { Collection, Model } from 'mongoose';
-import { conflict } from '../errors/domain-error.js';
+import { conflict, DomainError } from '../errors/domain-error.js';
 import { IdempotencyKey } from '../../persistence/schemas/idempotency-key.schema.js';
+
+export interface WriteOutcome<T> {
+  status: 201;
+  body: T;
+  replay: boolean;
+}
 
 export interface ReplayedResponse {
   status: number;
@@ -95,6 +101,39 @@ export class IdempotencyService {
       { _id: key },
       { $set: { state: 'COMPLETED', responseStatus: status, responseBody: body } },
     );
+  }
+
+  /**
+   * begin/work/complete, in one call, for endpoints that are a single insert
+   * rather than issue/return's claim-then-settle shape (movements.service.ts
+   * predates this helper and keeps its own copy of the same three steps).
+   *
+   * A domain refusal is recorded as the key's final result too: retrying the
+   * same key replays the same 409 instead of re-running checks that already
+   * gave a final answer. Anything unexpected leaves the key IN_FLIGHT rather
+   * than caching a result nobody decided.
+   */
+  async run<T extends Record<string, unknown>>(
+    key: string,
+    route: string,
+    payload: unknown,
+    work: () => Promise<T>,
+  ): Promise<WriteOutcome<T>> {
+    const prior = await this.begin(key, route, hashRequestBody(payload));
+    if (prior) return { status: 201, body: prior.body as T, replay: true };
+
+    try {
+      const body = await work();
+      await this.complete(key, 201, body);
+      return { status: 201, body, replay: false };
+    } catch (err) {
+      if (err instanceof DomainError) {
+        await this.complete(key, err.status, {
+          error: { code: err.code, message: err.message, details: err.details },
+        });
+      }
+      throw err;
+    }
   }
 }
 

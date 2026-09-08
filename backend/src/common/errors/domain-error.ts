@@ -23,7 +23,8 @@ export type DomainErrorCode =
   | 'OCCURRED_AT_IN_FUTURE'
   | 'IDEMPOTENCY_KEY_REQUIRED'
   | 'IDEMPOTENCY_KEY_REUSED'
-  | 'ASSET_NOT_YET_IN_STORE';
+  | 'ASSET_NOT_YET_IN_STORE'
+  | 'RESERVATION_NOT_PENDING';
 
 /**
  * The one error shape every business refusal takes (PLAN.md §10). Thrown by
