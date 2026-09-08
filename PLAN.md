@@ -80,8 +80,10 @@ Supporting choices, kept deliberately small:
 
 - **Mongoose** via the first-party `@nestjs/mongoose` — Nest's own database idiom, not an extra opinion.
 - **class-validator / class-transformer** — Nest's built-in validation pipe uses them. The server is the validation authority.
-- **Jest + Supertest** — ships with the Nest scaffold.
+- **Vitest + Supertest** — what the Nest 12 scaffold now ships (it moved off Jest); using it as-is rather than swapping the test runner.
 - **A plain local MongoDB (standalone).** No Docker, no replica set. See section 7 for why, and what it costs.
+
+Discovered at scaffold time: the Nest 12 CLI generates an ESM project (`"type": "module"`, `.js` import suffixes) with vitest and oxlint. All of it is kept as generated — fighting the scaffold's defaults is not where the hours go.
 
 **Frontend**
 
@@ -433,7 +435,7 @@ The frontend renders `message` directly. It never invents its own wording.
 ### Security (within the spec's scope)
 
 - Helmet-style headers and a locked-down CORS origin.
-- Rate limiting on write endpoints (Nest's built-in throttler) — cheap protection against the replay storm they will run.
+- ~~Rate limiting on write endpoints~~ — **dropped.** `@nestjs/throttler` does not yet support Nest 12, and it was already item 5 on the cut-first list. The replay storm is handled by idempotency, which is the real defence; rate limiting was only ever a convenience on top.
 - No secrets in the repo; connection string via environment variable, with an example file.
 - Mongoose schemas plus the whitelisting validation pipe prevent operator injection from request bodies.
 - Request-size limit.
