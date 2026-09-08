@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { HealthModule } from './modules/health/health.module.js';
+import { PersistenceModule } from './persistence/persistence.module.js';
 
 @Module({
   imports: [
@@ -13,8 +14,14 @@ import { HealthModule } from './modules/health/health.module.js';
         // Fail fast at boot rather than buffering commands for 30s and
         // timing out one by one if MongoDB is not running.
         serverSelectionTimeoutMS: 3000,
+        // Indexes are built at boot. At this size that costs milliseconds,
+        // and it means the unique key the one-holder guard depends on can
+        // never be missing from a fresh clone. A large deployment would
+        // build them out of band instead.
+        autoIndex: true,
       }),
     }),
+    PersistenceModule,
     HealthModule,
   ],
 })
