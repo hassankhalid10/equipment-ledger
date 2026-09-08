@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { HealthModule } from './modules/health/health.module.js';
 import { LedgerModule } from './modules/ledger/ledger.module.js';
 import { MovementsModule } from './modules/movements/movements.module.js';
+import { ReservationsModule } from './modules/reservations/reservations.module.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 
 @Module({
@@ -27,6 +28,7 @@ import { PersistenceModule } from './persistence/persistence.module.js';
     HealthModule,
     LedgerModule,
     MovementsModule,
+    ReservationsModule,
   ],
 })
 export class AppModule {}
