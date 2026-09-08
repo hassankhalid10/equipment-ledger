@@ -3,7 +3,7 @@
 Status tracker for [PLAN.md](PLAN.md). Phases and their deliverables are defined there;
 this file only records what is done.
 
-**Now:** Phase 1 complete. Phase 2 (seed) is next.
+**Now:** Phase 2 complete. Phase 3 (read API) is next.
 
 ---
 
@@ -13,8 +13,8 @@ this file only records what is done.
 |---|---|---|---|
 | 0 | Ground — scaffolds, health, repo hygiene | ✅ done | `82103db` `c4653fc` `9fc58ba` |
 | 1 | Model — domain rules, schemas, indexes | ✅ done | `3a2baee` `2639439` |
-| 2 | Seed — 60 assets, 12 workers, 30 days | ⬜ next | |
-| 3 | Read API — assets, history, as-of | ⬜ | |
+| 2 | Seed — 60 assets, 12 workers, 30 days | ✅ done | `83ed6de` |
+| 3 | Read API — assets, history, as-of | ⬜ next | |
 | 4 | **Issue and return** — the concurrency guarantee | ⬜ | |
 | 5 | Reservations and service status | ⬜ | |
 | 6 | Corrections | ⬜ | |
@@ -29,13 +29,14 @@ this file only records what is done.
 ```bash
 cd backend  && npm run start:dev   # 127.0.0.1:3001/health -> {"status":"ok"}
 cd frontend && npm run dev         # 127.0.0.1:3000
-cd backend  && npm test            # 27 unit tests, ~1s, no database
+cd backend  && npm run seed        # deterministic; re-run gives the same store
+cd backend  && npm test            # 38 unit tests, ~1s, no database
 cd backend  && npm run test:e2e    #  6 e2e tests, ~3s, real MongoDB
 ```
 
 **Built so far:** the pure domain (state fold, as-of, corrections, reservation overlap,
-certification) and all eight collections with their indexes. Both apps start and the
-API reports a live database connection.
+certification), all eight collections with their indexes, and a deterministic seed —
+60 assets, 12 workers, 213 movements, 6 reservations, 7 still out (4 overdue).
 
 **Not built yet:** every write path. Nothing can issue, return, reserve or correct.
 
