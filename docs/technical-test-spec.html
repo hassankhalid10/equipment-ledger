@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Technical Test — The Equipment Ledger (Full Stack)</title>
+<style>
+  :root{
+    --ink:#16212C;
+    --ink-soft:#41505E;
+    --ink-faint:#7A8894;
+    --paper:#F1F4F3;
+    --card:#FBFCFC;
+    --line:#D3DBD8;
+    --line-soft:#E3E8E6;
+    --start:#E08A34;
+    --active:#2E7BD6;
+    --done:#2F9160;
+    --alert:#C4453D;
+    --active-tint:#E7F0FB;
+    --done-tint:#E4F3EB;
+    --start-tint:#FBEFDF;
+    --alert-tint:#FAE8E7;
+    --display:"Space Grotesk",system-ui,-apple-system,sans-serif;
+    --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --maxw:820px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--body);font-size:16px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--active);text-decoration:none}
+  a:hover{text-decoration:underline}
+  ::selection{background:var(--start-tint)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  .hero{padding:64px 0 34px;border-bottom:1px solid var(--line)}
+  .kicker{
+    font-family:var(--mono);font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-faint);display:flex;align-items:center;gap:12px;margin-bottom:22px;
+  }
+  .kicker .dash{flex:1;height:1px;background:var(--line)}
+  h1{
+    font-family:var(--display);font-weight:700;font-size:clamp(30px,5.4vw,50px);
+    line-height:1.04;letter-spacing:-.02em;margin:0 0 18px;
+  }
+  h1 em{font-style:normal;color:var(--active)}
+  .lede{font-size:18px;color:var(--ink-soft);max-width:62ch;margin:0}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+  .chip{
+    font-family:var(--mono);font-size:12px;letter-spacing:.03em;
+    background:var(--card);border:1px solid var(--line);border-radius:100px;
+    padding:7px 13px;color:var(--ink-soft);
+  }
+  .chip b{color:var(--ink);font-weight:600}
+
+  .section{position:relative;padding:46px 0 8px;padding-left:52px}
+  .section::before{
+    content:"";position:absolute;left:14px;top:0;bottom:0;width:2px;background:var(--line);
+  }
+  .section:last-of-type::before{background:linear-gradient(var(--line) 60%,transparent)}
+  .station{
+    position:absolute;left:5px;top:52px;width:20px;height:20px;border-radius:50%;
+    background:var(--card);border:2px solid var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:10px;font-weight:600;color:var(--ink);
+  }
+  .sec-eyebrow{
+    font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-faint);margin:0 0 6px;
+  }
+  h2{font-family:var(--display);font-weight:600;font-size:26px;letter-spacing:-.01em;margin:0 0 16px}
+  h3{font-family:var(--display);font-weight:600;font-size:18px;margin:26px 0 8px}
+  p{margin:0 0 14px}
+  strong{font-weight:600;color:var(--ink)}
+  code{font-family:var(--mono);font-size:.88em;background:var(--line-soft);border-radius:5px;padding:1px 5px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:18px 0}
+  .rule-list{list-style:none;margin:16px 0;padding:0;counter-reset:r}
+  .rule-list>li{
+    position:relative;padding:14px 0 14px 46px;border-top:1px solid var(--line-soft);counter-increment:r;
+  }
+  .rule-list>li:first-child{border-top:0}
+  .rule-list>li::before{
+    content:counter(r);position:absolute;left:0;top:14px;
+    width:28px;height:28px;border-radius:8px;background:var(--ink);color:var(--paper);
+    font-family:var(--mono);font-size:13px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .rule-list>li b{font-family:var(--display);font-weight:600}
+  .note{
+    border-left:3px solid var(--active);background:var(--active-tint);
+    border-radius:0 10px 10px 0;padding:14px 18px;margin:16px 0;font-size:15px;
+  }
+  .note.warn{border-color:var(--start);background:var(--start-tint)}
+  .note.stop{border-color:var(--alert);background:var(--alert-tint)}
+  .note .tag{
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-soft);display:block;margin-bottom:4px;
+  }
+  .note p:last-child{margin-bottom:0}
+
+  .entities{display:grid;gap:12px;grid-template-columns:repeat(3,1fr);margin:16px 0}
+  .ent{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;position:relative;overflow:hidden}
+  .ent::after{content:"";position:absolute;top:0;left:0;right:0;height:4px}
+  .ent.a::after{background:var(--done)}
+  .ent.b::after{background:var(--start)}
+  .ent.c::after{background:var(--alert)}
+  .ent .code{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--ink-faint)}
+  .ent .name{font-family:var(--display);font-weight:600;font-size:17px;margin:2px 0 8px}
+  .ent p{font-size:13.5px;color:var(--ink-soft);margin:0}
+
+  .props{margin:14px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .props .row{display:grid;grid-template-columns:170px 1fr;border-top:1px solid var(--line-soft)}
+  .props .row:first-child{border-top:0}
+  .props .k{font-family:var(--mono);font-size:13px;padding:11px 16px;background:var(--card);color:var(--ink)}
+  .props .v{padding:11px 16px;font-size:14.5px;color:var(--ink-soft)}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:18px 0;background:var(--card)}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+  th,td{text-align:left;padding:11px 16px;border-top:1px solid var(--line-soft);vertical-align:top}
+  th{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);border-top:0}
+  td b{font-family:var(--display);font-weight:600}
+  td.num{font-family:var(--mono);white-space:nowrap;color:var(--ink-soft)}
+
+  pre{
+    background:#16212C;color:#E3E8E6;border-radius:12px;padding:18px 20px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.6;margin:16px 0;
+  }
+  pre .k{color:#8FC3F2}
+  pre .s{color:#F0B87A}
+  pre .n{color:#9BD9B4}
+  pre .c{color:#7A8894}
+
+  .stripcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 20px 20px;margin:18px 0}
+  .strip{display:flex;align-items:flex-start;overflow-x:auto;padding:6px 2px 10px}
+  .node{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;text-align:center;width:120px}
+  .connector{flex:1 1 auto;height:2px;background:var(--line);margin-top:23px;min-width:20px}
+  .dot{
+    width:44px;height:44px;border-radius:50%;background:var(--card);
+    border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-faint);
+  }
+  .node.ok .dot{border-color:var(--done);color:var(--done);background:var(--done-tint)}
+  .node.warn .dot{border-color:var(--start);color:var(--start);background:var(--start-tint)}
+  .node.bad .dot{border-color:var(--alert);color:var(--alert);background:var(--alert-tint)}
+  .node .lbl{font-family:var(--display);font-weight:600;font-size:13.5px;margin-top:8px}
+  .node .sub{font-size:12px;color:var(--ink-faint);line-height:1.4}
+
+  ul.plain{margin:12px 0;padding-left:20px}
+  ul.plain li{margin-bottom:8px}
+
+  .foot{border-top:1px solid var(--line);margin-top:56px;padding:34px 0 70px;color:var(--ink-faint);font-size:14px}
+  .foot b{color:var(--ink)}
+
+  @media (max-width:640px){
+    .entities{grid-template-columns:1fr}
+    .props .row{grid-template-columns:1fr}
+    .props .k{border-bottom:1px solid var(--line-soft)}
+    .section{padding-left:38px}
+    .section::before{left:8px}
+    .station{left:0}
+  }
+</style>
+</head>
+<body>
+<style>
+  .entities.four{grid-template-columns:repeat(4,1fr)}
+  .ent.d::after{background:var(--active)}
+  .cols{display:grid;gap:16px;grid-template-columns:1fr 1fr;margin:18px 0}
+  .cols h3{margin-top:0}
+  @media (max-width:640px){.entities.four{grid-template-columns:1fr}.cols{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Full Stack Technical Test <span class="dash"></span> Web Engineering</div>
+    <h1>Build the <em>equipment ledger</em> for a site store where the same drill can never be in two hands.</h1>
+    <p class="lede">
+      A tool store on a construction site. Sixty-odd assets, a few dozen workers, and a paper book that nobody
+      trusts. Replace the book. The hard part is not the form — it is that the ledger has to still be right after
+      two people click at once, after somebody logs a return an hour late, and after you are asked who held the
+      gas detector at 14:20 last Tuesday.
+    </p>
+    <div class="meta">
+      <span class="chip"><b>Stack</b> · Next.js · NestJS · MongoDB · TypeScript</span>
+      <span class="chip"><b>Time</b> · ~8 focused hours, 3 calendar days</span>
+      <span class="chip"><b>Deliverables</b> · source · README · seed · screen recording</span>
+    </div>
+  </header>
+
+  <!-- 01 -->
+  <section class="section">
+    <div class="station">01</div>
+    <p class="sec-eyebrow">What you're building</p>
+    <h2>The brief</h2>
+
+    <p>
+      A store keeper stands at a hatch with a laptop. Workers come to the hatch to take equipment out and bring it
+      back. Four things the system must be able to do:
+    </p>
+
+    <div class="entities four">
+      <div class="ent a">
+        <div class="code">01</div>
+        <div class="name">Issue</div>
+        <p>Hand an asset to a worker — now, or against a reservation they made earlier.</p>
+      </div>
+      <div class="ent b">
+        <div class="code">02</div>
+        <div class="name">Return</div>
+        <p>Take it back. Possibly from a different worker, possibly damaged and going out of service.</p>
+      </div>
+      <div class="ent c">
+        <div class="code">03</div>
+        <div class="name">Reserve</div>
+        <p>Claim an asset for a future window. Two overlapping claims on one asset must be impossible.</p>
+      </div>
+      <div class="ent d">
+        <div class="code">04</div>
+        <div class="name">Reconstruct</div>
+        <p>The whole store as it stood at any past instant, and the full life of any one asset.</p>
+      </div>
+    </div>
+
+    <p>
+      Everything else is yours. How many pages there are, what the API looks like, how the collections are shaped,
+      whether the ledger is events or rows, where validation lives, what renders on the server — none of that is
+      specified here.
+    </p>
+
+    <div class="note warn">
+      <span class="tag">Scope discipline</span>
+      <p>No authentication, no roles and permissions, no email, no file uploads, no barcode scanning, no mobile app,
+      no multi-site. The store keeper is identified by picking a name from a list, and the worker the same way. We
+      would rather see the ledger provably correct than six screens done thinly.</p>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="section">
+    <div class="station">02</div>
+    <p class="sec-eyebrow">Domain</p>
+    <h2>The things in it</h2>
+
+    <div class="props">
+      <div class="row"><div class="k">Asset</div><div class="v">A single physical item with an identity — <code>HARN-014</code>, not "a harness". It has a kind, and it may require a certification to hold. It can be taken out of service and later brought back.</div></div>
+      <div class="row"><div class="k">Worker</div><div class="v">A person who can hold assets. Holds zero or more certifications, each with an expiry date.</div></div>
+      <div class="row"><div class="k">Reservation</div><div class="v">A claim on one asset for a window of time in the future, made by a worker.</div></div>
+      <div class="row"><div class="k">Movement</div><div class="v">A recorded fact: this asset went to this worker at this time, or came back at this time. Movements are what the ledger is made of.</div></div>
+    </div>
+
+    <p>
+      That is the vocabulary, not the schema. Whether a movement is one document or two, whether an asset carries a
+      denormalised current holder, whether reservations and movements live together — your call.
+    </p>
+
+    <div class="stripcard">
+      <div class="strip">
+        <div class="node ok"><div class="dot">01</div><div class="lbl">In store</div><div class="sub">Nobody holds it</div></div>
+        <div class="connector"></div>
+        <div class="node warn"><div class="dot">02</div><div class="lbl">Reserved</div><div class="sub">Claimed for a window</div></div>
+        <div class="connector"></div>
+        <div class="node warn"><div class="dot">03</div><div class="lbl">Issued</div><div class="sub">One holder, no more</div></div>
+        <div class="connector"></div>
+        <div class="node bad"><div class="dot">04</div><div class="lbl">Overdue</div><div class="sub">Past its due time</div></div>
+        <div class="connector"></div>
+        <div class="node ok"><div class="dot">05</div><div class="lbl">Returned</div><div class="sub">Back in store</div></div>
+        <div class="connector"></div>
+        <div class="node bad"><div class="dot">06</div><div class="lbl">Out of service</div><div class="sub">Damaged, unissuable</div></div>
+      </div>
+      <p style="margin:0;font-size:13.5px;color:var(--ink-faint)">
+        Indicative, not prescriptive. If your model has fewer states, or none at all because state is derived,
+        say why in the README.
+      </p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="section">
+    <div class="station">03</div>
+    <p class="sec-eyebrow">Constraints</p>
+    <h2>The rules you have to work inside</h2>
+
+    <div class="tablewrap">
+      <table>
+        <tbody>
+          <tr><td><b>One holder, ever</b></td><td>An asset is held by at most one worker at any instant. Not "usually" — never, including when two requests arrive in the same millisecond.</td></tr>
+          <tr><td><b>Reservations don't overlap</b></td><td>Two reservations on the same asset may not share a minute. Adjacent is fine, overlapping is not.</td></tr>
+          <tr><td><b>Certification gates issue</b></td><td>Some assets require a certification. Expired on the day of issue means refused, with a reason a human can read.</td></tr>
+          <tr><td><b>Out of service is real</b></td><td>An unserviceable asset cannot be issued or newly reserved. Reservations already standing against it are your problem to resolve — decide, and say what you decided.</td></tr>
+          <tr><td><b>Late entries happen</b></td><td>The keeper logs a 09:00 return at 11:40. The ledger records both when it happened and when it was written, and they are not the same field.</td></tr>
+          <tr><td><b>Corrections, not erasures</b></td><td>A wrongly recorded movement can be fixed. The history must show that a correction was made, not quietly read as though the mistake never happened.</td></tr>
+          <tr><td><b>Nothing lands twice</b></td><td>A double-clicked button, a retried request, a refreshed tab mid-submit — one movement, however many times it arrived.</td></tr>
+          <tr><td><b>Any instant, answerable</b></td><td>"Who held what at 14:20 last Tuesday" is a supported question, answered from the ledger, not from a cache you happened to keep.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>One holder, corrections, nothing twice, and any instant</strong> are not negotiable. Everything the
+      system does has to hold them.
+    </p>
+
+    <div class="note stop">
+      <span class="tag">On concurrency</span>
+      <p>Two <em>issue</em> requests for the same asset can arrive at the same moment, repeatedly. Exactly one must
+      succeed and the other must fail with a sensible answer. "Mongo is fast enough that it won't happen" is not a
+      design — be able to point at the line that makes it impossible, and to say what it costs.</p>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="section">
+    <div class="station">04</div>
+    <p class="sec-eyebrow">Data</p>
+    <h2>What has to be in there before we look</h2>
+
+    <p>
+      Ship a seed command that gives the store a past — enough that the history view has something to show and the
+      reconstruction question has a real answer.
+    </p>
+
+    <ul class="plain">
+      <li>Roughly <strong>60 assets</strong> across a handful of kinds, some requiring certification, at least one out of service.</li>
+      <li>Roughly <strong>12 workers</strong>, with certifications — including one expired and one expiring inside the seeded window.</li>
+      <li><strong>Thirty days</strong> of movements: ordinary issues and returns, a few still outstanding, at least one overdue, at least one late-logged entry, and at least one correction.</li>
+      <li>Some <strong>reservations</strong>, past and future, including one that was never collected.</li>
+    </ul>
+
+    <div class="note">
+      <span class="tag">Repeatable</span>
+      <p>Seeding twice must not double the store, and the data should be deterministic — the same command gives the
+      same store, so the scenario in your recording can be run again.</p>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="section">
+    <div class="station">05</div>
+    <p class="sec-eyebrow">Assessment</p>
+    <h2>What we will do to it</h2>
+
+    <p>
+      We will not read your code first. We will run it, try to break the ledger, and then read the code to find out
+      how you stopped us.
+    </p>
+
+    <div class="card">
+      <h3 style="margin-top:0">The main scenario</h3>
+      <p style="margin:0">
+        Seed the store. Issue an asset, then try to issue the same one to somebody else — concurrently, twice at
+        once, and again from two browser tabs. Return it with a backdated time. Correct that time. Reserve it for a
+        window that overlaps an existing reservation. Ask what the store looked like an hour before all of this. We
+        expect one holder throughout, a history that shows the correction, and an answer to the "as of" question
+        that is consistent with every screen.
+      </p>
+    </div>
+
+    <h3>And then</h3>
+    <ul class="plain">
+      <li>Double-click submit; replay the same request twice with the same payload; refresh mid-submit.</li>
+      <li>Issue an asset requiring a certification to a worker whose certification expired yesterday.</li>
+      <li>Take an asset out of service while it is issued, and while it is reserved.</li>
+      <li>Return an asset that isn't out. Return it twice. Return it as a different worker than the one holding it.</li>
+      <li>Backdate a return to before its issue. Backdate a movement into the middle of a later one.</li>
+      <li>Reserve a window in the past. Reserve a window that ends before it starts. Reserve for a whole year.</li>
+      <li>Ask for an "as of" instant that falls exactly on a movement's timestamp, and one before the store existed.</li>
+      <li>Kill the API mid-request and see what the browser is left claiming.</li>
+      <li>Read the ledger straight out of Mongo and check it says the same thing your screens do.</li>
+      <li>Then we will ask you why you built it that way. Bring your reasoning, not your library list.</li>
+    </ul>
+  </section>
+
+  <!-- 06 -->
+  <section class="section">
+    <div class="station">06</div>
+    <p class="sec-eyebrow">Submission</p>
+    <h2>What to send</h2>
+
+    <h3>Deliverables</h3>
+    <ul class="plain">
+      <li>A Git repository with real commit history — not one "initial commit" dump.</li>
+      <li>A <strong>README</strong>: how to run both sides, how to seed, how to run the invariant checks, the model you
+      chose and why, how you made concurrent issue impossible, what you'd do with another day, and what you knowingly
+      left out.</li>
+      <li>A <strong>screen recording</strong>, two or three minutes: issue, a refused issue, a backdated return, a
+      correction, and the "as of" answer.</li>
+    </ul>
+
+    <div class="note warn">
+      <span class="tag">Note on the scenario</span>
+      <p>The site store, the assets and the workers are invented for this test. Nothing here is drawn from a live
+      system, and your submission stays your own work — we ask only that you don't publish it as a solved interview
+      exercise while we're still using it.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p><b>Questions are welcome.</b> If something here is ambiguous, ask — and if you'd rather make a judgement call
+    and document it in the README, that's an equally good answer. Deciding under ambiguity is part of the job.</p>
+    <p style="margin:0">Full Stack Technical Test · Web Engineering</p>
+  </footer>
+
+</div>
+</body>
+</html>
