@@ -550,8 +550,14 @@ export function buildSeed(anchorInput: Date): SeededStore {
   reserve('never-collected', 'LADD-004', 10, -3, -3, 'PENDING');
   reserve('future-a', 'GEN-001', 4, 2, 3, 'PENDING');
   reserve('future-b', 'SCAF-005', 8, 3, 4, 'PENDING');
-  // Adjacent to future-b, sharing an edge, which is allowed and worth seeing.
-  reserve('future-c', 'SCAF-005', 1, 4, 5, 'PENDING');
+  // Adjacent to future-b, sharing an edge, which is allowed and worth seeing:
+  // starts at the exact instant future-b ends. The default 08:00 start from
+  // `reserve`'s day-granularity helper would have overlapped it for nine
+  // hours instead - caught by `npm run check:invariants`, not by eye.
+  reserve('future-c', 'SCAF-005', 1, 4, 5, 'PENDING', {
+    startsAt: at(anchor, 4, 17),
+    endsAt: at(anchor, 5, 17),
+  });
   reserve('future-cancelled', 'DRIL-001', 11, 6, 7, 'CANCELLED', {
     cancelledAt: at(anchor, -1, 12),
     cancelReason: 'Job moved to next month.',

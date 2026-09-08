@@ -3,7 +3,7 @@
 Status tracker for [PLAN.md](PLAN.md). Phases and their deliverables are defined there;
 this file only records what is done.
 
-**Now:** Phase 6 complete. Phase 7 (invariant checker + reconcile) is next.
+**Now:** Phase 7 complete. Phase 8 (frontend) is next.
 
 ---
 
@@ -17,9 +17,9 @@ this file only records what is done.
 | 3 | Read API — assets, history, as-of | ✅ done | `56bc6c0` `3b3c04b` |
 | 4 | **Issue and return** — the concurrency guarantee | ✅ done | `771e4ea` `4f1af54` `4d5d970` `c3fc47c` |
 | 5 | Reservations and service status | ✅ done | `08bc4a8` `8891f99` `985ecfe` `81f4f6e` |
-| 6 | Corrections | ✅ done | *(pending commit)* |
-| 7 | Invariant checker + reconcile | ⬜ next | |
-| 8 | Frontend — five pages, five dialogs | ⬜ | |
+| 6 | Corrections | ✅ done | `6fb2c35` `6c70756` |
+| 7 | Invariant checker + reconcile | ✅ done | *(pending commit)* |
+| 8 | Frontend — five pages, five dialogs | ⬜ next | |
 | 9 | README and recording | ⬜ | |
 
 ---
@@ -30,8 +30,10 @@ this file only records what is done.
 cd backend  && npm run start:dev   # 127.0.0.1:3001/health -> {"status":"ok"}
 cd frontend && npm run dev         # 127.0.0.1:3000
 cd backend  && npm run seed        # deterministic; re-run gives the same store
-cd backend  && npm test            # 38 unit tests, ~1s, no database
-cd backend  && npm run test:e2e    # 55 e2e tests, ~17s, real MongoDB (own test db, see below)
+cd backend  && npm test              # 50 unit tests, <1s, no database
+cd backend  && npm run test:e2e      # 55 e2e tests, ~17s, real MongoDB (own test db, see below)
+cd backend  && npm run check:invariants   # 7 checks against the real store, exits non-zero on failure
+cd backend  && npm run reconcile          # settles any claim still mid-flight
 ```
 
 Read endpoints, all against `127.0.0.1:3001`: `GET /assets` (status/kind/q filters),
@@ -49,13 +51,21 @@ seed (Phase 4d). Files run sequentially (`fileParallelism: false`) since several
 assert exact collection counts against data they seed themselves.
 
 **Built so far:** the pure domain, all eight collections and indexes, the
-deterministic seed, the full read API, and every write: issue/return with the
-concurrency guarantee (10 simultaneous issues → 1 winner, proven under test),
-crash-recovery replay for the no-transaction write path, reservations with
-overlap/window validation, out-of-service/back-in-service with the standing-
-reservation cancellation, and corrections with full-timeline revalidation.
+deterministic seed, the full read API, every write (issue/return with the
+concurrency guarantee, reservations, service status, corrections), and the
+invariant checker + reconcile — the whole backend the plan called for.
 
-**Not built yet:** the invariant checker, `npm run reconcile`, and the frontend.
+The checker's logic (`check-invariants-core.ts`) is a pure function, same split
+as the seed: 11 unit tests build deliberately broken stores, one per check, with
+no database. It also caught a real bug the moment it first ran against the
+seeded store: Phase 2's "adjacent reservations sharing an edge" pair actually
+overlapped for nine hours, because the seed's day-granularity helper defaulted
+both to 08:00 regardless of what the comment claimed. Fixed in the seed, and a
+seed-data.spec.ts test now asserts no two live reservations on one asset
+overlap, closing the gap that let it through undetected in Phase 2.
+
+**Not built yet:** the frontend. Everything else the plan calls for backend-side
+is done.
 
 ---
 

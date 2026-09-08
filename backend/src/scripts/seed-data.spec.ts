@@ -1,6 +1,7 @@
 import { buildSeed } from './seed-data.js';
 import { foldAssetState } from '../domain/state-fold.js';
 import { storeAsOf } from '../domain/as-of.js';
+import { blocksWindow, overlaps } from '../domain/reservation-overlap.js';
 import type { Movement, Reservation } from '../domain/types.js';
 
 const ANCHOR = new Date('2026-09-08T00:00:00Z');
@@ -151,6 +152,33 @@ describe('the seeded ledger is one the fold accepts', () => {
       });
 
       expect(valid).toBe(true);
+    }
+  });
+
+  // Added after `npm run check:invariants` caught a real bug here: the
+  // "adjacent, sharing an edge" reservation pair actually overlapped for
+  // nine hours, because the seed's day-granularity helper defaults every
+  // window to 08:00-17:00 regardless of what the comment claimed. The
+  // checker running against MongoDB found it; this closes the gap so the
+  // same class of mistake fails fast, in the same second as every other
+  // seed test, without needing a database.
+  it('never books two live reservations over the same window on one asset (FR-7)', () => {
+    const byAsset = new Map<string, Reservation[]>();
+    for (const r of asDomainReservations()) {
+      const list = byAsset.get(r.assetId) ?? [];
+      list.push(r);
+      byAsset.set(r.assetId, list);
+    }
+
+    for (const [assetId, reservations] of byAsset) {
+      const live = reservations.filter(blocksWindow);
+      for (let i = 0; i < live.length; i += 1) {
+        for (let j = i + 1; j < live.length; j += 1) {
+          expect
+            .soft(overlaps(live[i], live[j]), `${assetId}: ${live[i].id} and ${live[j].id} overlap`)
+            .toBe(false);
+        }
+      }
     }
   });
 });
