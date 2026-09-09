@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ApiStatus } from "@/components/ApiStatus";
+import { KeeperPicker } from "@/components/KeeperPicker";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -37,7 +38,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   </Link>
                 ))}
               </nav>
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-4">
+                <KeeperPicker />
                 <ApiStatus />
               </div>
             </div>
