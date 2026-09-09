@@ -3,7 +3,7 @@
 Status tracker for [PLAN.md](PLAN.md). Phases and their deliverables are defined there;
 this file only records what is done.
 
-**Now:** Phase 7 complete. Phase 8 (frontend) is next.
+**Now:** Phase 8 complete. Phase 9 (README and recording) is next — the last one.
 
 ---
 
@@ -18,9 +18,9 @@ this file only records what is done.
 | 4 | **Issue and return** — the concurrency guarantee | ✅ done | `771e4ea` `4f1af54` `4d5d970` `c3fc47c` |
 | 5 | Reservations and service status | ✅ done | `08bc4a8` `8891f99` `985ecfe` `81f4f6e` |
 | 6 | Corrections | ✅ done | `6fb2c35` `6c70756` |
-| 7 | Invariant checker + reconcile | ✅ done | *(pending commit)* |
-| 8 | Frontend — five pages, five dialogs | ⬜ next | |
-| 9 | README and recording | ⬜ | |
+| 7 | Invariant checker + reconcile | ✅ done | `4122208` `d3b37eb` |
+| 8 | Frontend — five pages, six dialogs | ✅ done | *(pending commit)* |
+| 9 | README and recording | ⬜ next | |
 
 ---
 
@@ -64,8 +64,21 @@ both to 08:00 regardless of what the comment claimed. Fixed in the seed, and a
 seed-data.spec.ts test now asserts no two live reservations on one asset
 overlap, closing the gap that let it through undetected in Phase 2.
 
-**Not built yet:** the frontend. Everything else the plan calls for backend-side
-is done.
+**The frontend** covers all five routes — store board, asset life, as-of, ledger,
+workers — and every write endpoint has a way to reach it: six dialogs, each a
+React Hook Form + Zod form that mints one idempotency key when it opens and
+reuses it for every retry of that submit.
+
+Two rules live in `useWrite.ts` rather than being repeated per dialog, because
+both are things the spec's attack list probes directly:
+
+- **No optimistic updates.** `onMutate` appears nowhere in the app. A write
+  shows pending, then either the server's confirmed truth or an explicit error.
+  The UI never claims a movement happened.
+- **`retry: false` on mutations.** The idempotency key makes a retry safe, but a
+  silent one would hide exactly the mid-request failure being provoked.
+
+**Not built yet:** the README's four "why" sections and the screen recording.
 
 ---
 
@@ -87,3 +100,4 @@ Recorded in PLAN.md where they apply; listed here so they are not lost.
 
 - Screen recording (FR-29) is not started.
 - README's four "why" sections are still placeholders.
+
